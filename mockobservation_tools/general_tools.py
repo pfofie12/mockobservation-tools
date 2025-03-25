@@ -190,12 +190,6 @@ def measure_surfbright(
     mid_pixel_FOV = FOV - FOV / pixel
     kpc_per_pixel = (FOV / (pixel/2))**2 # area 
     
-    # Create distance array, the same shape as the image
-    # Used to mask image based on physical location
-    #x_coord_kpc = np.linspace(-mid_pixel_FOV,mid_pixel_FOV,num=pixels)
-    #x_coord_kpc = np.array([x_coord_kpc,]*pixels)
-    #y_coord_kpc = np.linspace(-mid_pixel_FOV,mid_pixel_FOV,num=pixels) 
-    #y_coord_kpc = np.array([y_coord_kpc,]*pixels).transpose()
     
     mid_pixel_FOV = FOV - FOV / pixel
     x, y = np.linspace(-mid_pixel_FOV, mid_pixel_FOV, pixel), np.linspace(-mid_pixel_FOV, mid_pixel_FOV, pixel)

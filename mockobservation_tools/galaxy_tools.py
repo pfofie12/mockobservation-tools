@@ -11,11 +11,16 @@ import glob
 #sys.path.append("/nfspool-0/home/kleinca/myenviro/lib/python3.6/site-packages")
 #sys.path.append("/export/nfs0home/kleinca/my_tools/mockobservation_tools")
 
-
 from firestudio.utils.stellar_utils.load_stellar_hsml import get_particle_hsml
-from firestudio.utils.stellar_utils import raytrace_projection
+
+
+from firestudio.utils.stellar_utils.colors_sps.read_band_lums_from_tables import read_band_lums_from_tables
+
 from firestudio.studios.star_studio import raytrace_ugr_attenuation
-import firestudio.utils.stellar_utils.make_threeband_image as makethreepic
+from firestudio.utils.stellar_utils import opacity_per_solar_metallicity
+
+
+from firestudio.utils.stellar_utils.make_threeband_image import make_threeband_image_process_bandmaps
 from abg_python.galaxy.cosmoExtractor import orientDiskFromSnapdicts,offsetRotateSnapshot
 from abg_python.physics_utils import getTemperature
 
@@ -142,10 +147,6 @@ def load_sim(
             dark_snapdict['h'] = h
             dark_snapdict['a'] = a_snap
             
-            
-
-        
-        
 
         f.close()
     
@@ -163,7 +164,7 @@ def load_sim(
                                                      helium_mass_fraction = gas_snapdict['Metallicity_He'], 
                                                      ElectronAbundance = gas_snapdict['ElectronAbundance'])
     if dark_matter is True:
-        return dark_snapdict, star_snapdict, gas_snapdict
+        return star_snapdict, gas_snapdict, dark_snapdict
     else:
         return star_snapdict, gas_snapdict
 
@@ -213,7 +214,7 @@ def load_halo(
         if len(halo_files) > 1:
             for i in halo_files[1:]:
                 halo_hold = pd.read_csv(i, skiprows=np.arange(1,20),sep=' ')
-                halo = halo.append(halo_hold)
+                halo = pd.concat([halo, pd.DataFrame(halo_hold)], ignore_index=True)
         halo = halo[['#id', 'x','y','z', 'mvir', 'Halfmass_Radius','mbound_vir', 'rvir']]    
         halo = halo.rename(columns={'#id': 'id'})
         halo = halo.set_index('id')
@@ -257,7 +258,7 @@ def mask_sim_to_halo(
     star_snapdict, 
     gas_snapdict, 
     host_halo, 
-    orient=True, 
+    #orient=True, 
     lim = True, 
     limvalue=None):
     
@@ -271,7 +272,7 @@ def mask_sim_to_halo(
     star_snapdict: dict, The star particle dictionary from load_sim
     gas_snapdict:  dict, The gas particle dictionary from load_sim    
     host_halo:     dataframe, Halo info from load_halo with only host info
-    orient:        bool, If true it will orient the coordinates based on the axis of net angular momentum
+    orient:        Not currently updated bool, If true it will orient the coordinates based on the axis of net angular momentum
     lim:           bool, If true it will mask the star and gas dict within limvalue radius
     limvalue:      float, The physical radius in kpc that for which the particles will be masked out
                     if limvalue=None, then it will mask using a limit of the host Halfmass_Radius
@@ -322,36 +323,36 @@ def mask_sim_to_halo(
         for key in list(gas_snapdict.keys())[2:]: # no mask for a, h keys
             gas_snapdict[key] = gas_snapdict[key][mask_gas]
             
-        if orient is True:    
-            theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(star_snapdict,gas_snapdict,limvalue,[0,0,0],orient_stars=True)
-            star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
-            gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+        #if orient is True:   
+        #    theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(star_snapdict,gas_snapdict,limvalue,[0,0,0],orient_component='gas')
+        #    star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+        #    gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
         
         return star_snapdict, gas_snapdict, host_halo
     
     else:
-        if orient is True:
-            theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(star_snapdict,gas_snapdict,limvalue,[0,0,0],orient_stars=True)
-            star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
-            gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+        #if orient is True:
+        #    theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(star_snapdict,gas_snapdict,limvalue,[0,0,0],orient_component='gas')
+        #    star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+        #    gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
         
         return star_snapdict, gas_snapdict, host_halo
 
     
     
-def load_sim_FIREBox(
+def load_sim_General(
     obj_path,  
     ahf_path=None,
     mass_unit = 'simulation' ,
     length_unit = 'simulation', 
     star_keys=['stellar_x','stellar_y','stellar_z',
                'stellar_vx','stellar_vy','stellar_vz',
-               'stellar_mass','stellar_metal_00','stellar_id','stellar_tform'],
-    gas_keys=['stellar_x','stellar_y','stellar_z',
-               'stellar_vx','stellar_vy','stellar_vz',
-               'stellar_mass','stellar_metal_00','stellar_id','stellar_tform',''],
+               'stellar_mass','stellar_metal_00','stellar_id','stellar_tform',None],
+    gas_keys =  ['gas_x','gas_y','gas_z',
+                 'gas_vx','gas_vy','gas_vz',
+                 'gas_mass','gas_metal_00','gas_id', 'gas_hsml'],
     gen_keys=['redshift','Mvir','Rvir'],
-    orient=False):
+):
     
     '''
     Loads FIREBox galaxies preped by Prof. Jorge Moreno
@@ -370,8 +371,10 @@ def load_sim_FIREBox(
     length_unit: str, physical/simulation units of the input particle length, converts to physical 
     key_values:  Allows to adjust if there are different key values for the data
                         gas  coords, velocity, mass, metalicity, id, hsml
-                        star coords, velocity, mass, metalicity, id, tform
+                        star coords, velocity, mass, metalicity, id, tform, hsml
                         Must be input exactly like the example.
+                        Some times you dont have hsml, so you can use none and it will be calculated
+                        
     
                     default (consistent with Jorge initial run):  
                     gas_keys =  ['gas_x','gas_y','gas_z',
@@ -380,7 +383,7 @@ def load_sim_FIREBox(
                     
                     star_keys = ['stellar_x','stellar_y','stellar_z',
                                  'stellar_vx','stellar_vy','stellar_vz',
-                                 'stellar_mass','stellar_metal_00','stellar_id','stellar_tform']
+                                 'stellar_mass','stellar_metal_00','stellar_id','stellar_tform', None]
                                  
                     gen_keys =  ['redshift','Mvir','Rvir']
                                  
@@ -392,7 +395,7 @@ def load_sim_FIREBox(
                     
                     star_keys = ['stars_x','stars_y','stars_z',
                                  'stars_vx','stars_vy','stars_vz',
-                                 'stars_mass','gas_total_metallicity','stars_id','stars_formation_time']
+                                 'stars_mass','gas_total_metallicity','stars_id','stars_formation_time', None]
                                                      
                     gen_keys =  ['redshift','object_Mvir','object_Rvir']
 
@@ -407,12 +410,6 @@ def load_sim_FIREBox(
     ahf_path = '/DFS-L/DATA/cosmo/jgmoren1/FIREBox/FB15N1024/objects_1200_original/bound_particle_filters_object_0.hdf5'
     star_snapdict, gas_snapdict = load_sim_FIREBox(obj_path, ahf_path)
     
-    
-    #using old_objects_1200 data
-    FB15N1024/old_objects_1200/object
-    obj_path = '/DFS-L/DATA/cosmo/jgmoren1/FIREBox/FB15N1024/old_objects_1200/object_0.hdf5'    
-    ahf_path = '/DFS-L/DATA/cosmo/jgmoren1/FIREBox/FB15N1024/old_objects_1200/object_0.hdf5'
-    star_snapdict, gas_snapdict = load_sim_FIREBox(obj_path, ahf_path)
     
     
     '''
@@ -431,6 +428,8 @@ def load_sim_FIREBox(
     starkey_metal = star_keys[7]
     starkey_id    = star_keys[8]
     starkey_tform = star_keys[9]
+    starkey_hsml  = star_keys[10]
+    
     
     genkey_redshift = gen_keys[0]
     genkey_Mvir = gen_keys[1]
@@ -466,7 +465,7 @@ def load_sim_FIREBox(
         
     #Unit conversion 
     if mass_unit == 'physical':
-        mass_conversion = (10**10)
+        mass_conversion = 1
     elif mass_unit == 'simulation':
         mass_conversion = (10**10)/h
   
@@ -523,6 +522,17 @@ def load_sim_FIREBox(
     gas_snapdict['Metallicity'] = f[gaskey_metal][gas_mask]
     gas_snapdict['hsml']        = f[gaskey_hsml][gas_mask]
     gas_snapdict['ParticleIDs'] = f[gaskey_id][gas_mask]
+    
+    if gaskey_hsml is None:
+        gas_hsml = get_particle_hsml(gas_snapdict['Coordinates'][:,0],
+                                     gas_snapdict['Coordinates'][:,1],
+                                     gas_snapdict['Coordinates'][:,2])
+        gas_snapdict['hsml'] = np.append(gas_snapdict['hsml'],gas_hsml)
+        
+    else:
+        gas_snapdict['hsml'] = f[gaskey_hsml][gas_mask]
+
+        
   
     
     #Load Star Particles
@@ -541,7 +551,7 @@ def load_sim_FIREBox(
                                            ]).T  
 
     star_snapdict['Masses']      = f[starkey_mass][star_mask]*mass_conversion
-    star_snapdict['Metallicity'] = f[gaskey_metal][star_mask]
+    star_snapdict['Metallicity'] = f[starkey_metal][star_mask]
     star_snapdict['ParticleIDs'] = f[starkey_id][star_mask]
     star_snapdict['StellarFormationTime'] = f[starkey_tform][star_mask]    
     
@@ -552,20 +562,30 @@ def load_sim_FIREBox(
     star_snapdict['r_yz'] = (star_snapdict['Coordinates'][:,1]**2 + star_snapdict['Coordinates'][:,2]**2) ** 0.5
     star_snapdict['r_zx'] = (star_snapdict['Coordinates'][:,2]**2 + star_snapdict['Coordinates'][:,0]**2) ** 0.5
     
+
+    if starkey_hsml is None:
+        star_hsml = get_particle_hsml(star_snapdict['Coordinates'][:,0],
+                                     star_snapdict['Coordinates'][:,1],
+                                     star_snapdict['Coordinates'][:,2])
+        star_snapdict['hsml'] = np.append(star_snapdict['hsml'],star_hsml)
+        
+    else:
+        star_snapdict['hsml'] = f[starkey_hsml][star_mask]
+        
    
     z_form = 1/star_snapdict['StellarFormationTime'] - 1
     star_snapdict['StellarAge'] = np.array( ( Planck13.lookback_time( z_form ) ) ) 
     
 
-    if orient is True:    
-        youngstarsMax = star_snapdict['StellarAge'] < .5
-        youngstars = {'Coordinates': star_snapdict['Coordinates'][youngstarsMax], 
-                      'Velocities': star_snapdict['Velocities'][youngstarsMax], 
-                      'Masses': star_snapdict['Masses'][youngstarsMax]}
-        
-        theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(youngstars,gas_snapdict,Rvir,[0,0,0],orient_stars=True)
-        star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
-        gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+    #if orient is True:    
+    #    youngstarsMax = star_snapdict['StellarAge'] < .5
+    #    youngstars = {'Coordinates': star_snapdict['Coordinates'][youngstarsMax], 
+    #                  'Velocities': star_snapdict['Velocities'][youngstarsMax], 
+    #                  'Masses': star_snapdict['Masses'][youngstarsMax]}
+    #    
+    #    theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(youngstars,gas_snapdict,Rvir,[0,0,0],orient_stars=True)
+    #    star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+    #    gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
     
     
     f.close()
@@ -638,10 +658,17 @@ def get_mock_observation(
 
     
     
-    kappas,lums = raytrace_projection.read_band_lums_from_tables(bands,
-                                                                 star_snapdict['Masses']*mass_scalar,
-                                                                 star_snapdict['StellarAge'],
-                                                                 star_snapdict['Metallicity'])
+    #kappas,lums = read_band_lums_from_tables(bands,
+    lums, nu_effs = read_band_lums_from_tables(bands,
+                                             star_snapdict['Masses']*mass_scalar,
+                                             star_snapdict['StellarAge'],
+                                             star_snapdict['Metallicity'])
+    
+    
+     ##   mass and size. the default it to assume gadget units (M=10^10 M_sun, l=kpc)
+    KAPPA_UNITS=2.08854068444 ## cm^2/g -> kpc^2/mcode
+    kappas = [KAPPA_UNITS*opacity_per_solar_metallicity(nu_eff) for nu_eff in nu_effs]
+
 
     if view == 'xy':
         coords_stars = [star_snapdict['Coordinates'][:,0],star_snapdict['Coordinates'][:,1],star_snapdict['Coordinates'][:,2]]  
@@ -668,9 +695,6 @@ def get_mock_observation(
     gas_out,out_band0,out_band1,out_band2 = raytrace_ugr_attenuation(coords_stars[0]-cm[0],
                                                                      coords_stars[1]-cm[1],
                                                                      coords_stars[2]-cm[2],
-                                                                     star_snapdict['Masses']*mass_scalar,
-                                                                     star_snapdict['StellarAge'],
-                                                                     star_snapdict['Metallicity'],
                                                                      star_snapdict['hsml']*hsml_scalar,
                                                                      coords_gas[0]-cm[0],
                                                                      coords_gas[1]-cm[1],
@@ -738,10 +762,9 @@ def get_mock_observation(
     elif return_type == 'mock_image':
         unit_factor = 1e10/(2*FOV/pixels)**2
         out_band0,out_band1,out_band2 = out_band0*unit_factor, out_band1*unit_factor, out_band2*unit_factor
-        image24, massmap = makethreepic.make_threeband_image_process_bandmaps(
+        image24, massmap = make_threeband_image_process_bandmaps(
                             copy.copy(out_band0),copy.copy(out_band1),copy.copy(out_band2),
-                            maxden=dynrange * minden, dynrange=dynrange,
-                            pixels=pixels)
+                            maxden=dynrange * minden, dynrange=dynrange)
 
         return image24, out_band0, out_band1, out_band2
     
@@ -761,6 +784,7 @@ def get_mock_massimage(
     center = 'none',
     mass_scalar = 1 / 1e10,
     hsml_scalar=1.4,
+    return_type='mass',
     QUIET=False):  
     
     '''
@@ -775,11 +799,16 @@ def get_mock_massimage(
     mass_scalar:   The code expects the masses to be in the simulation units of 1e10 Msun.
                     if the mass is in units Msun, then use mass_scalar = 1e-10. If
                     it is in simulation units is mass_scalar = 1
-                    
+    return_type:   'mass': return it in units Msun
+                   'mass_density': return it in units Msun/kpc
+    
+    
+    
     Returns
     -------     
-    Refer to return_type to see the different values returned by the function
-        
+    out_mass im
+
+
     '''
         
     if len(star_snapdict['hsml']) == 0:
@@ -831,9 +860,6 @@ def get_mock_massimage(
     gas_out,out_mass0,out_mass1,out_mass2 = raytrace_ugr_attenuation(coords_stars[0]-cm[0],
                                                                      coords_stars[1]-cm[1],
                                                                      coords_stars[2]-cm[2],
-                                                                     star_snapdict['Masses']*mass_scalar,
-                                                                     star_snapdict['StellarAge'],
-                                                                     star_snapdict['Metallicity'],
                                                                      star_snapdict['hsml']*hsml_scalar,
                                                                      coords_gas[0]-cm[0],
                                                                      coords_gas[1]-cm[1],
@@ -858,7 +884,16 @@ def get_mock_massimage(
     # first values is the upper left value of the image
     out_mass0 = np.rot90(out_mass0,k=1,axes=(0,1))
     
-    return out_mass0, len(star_snapdict['Masses'])
+    if return_type=='mass':
+        unit_factor = 1e10 # gives units in Msun 
+        
+        return out_mass0 * unit_factor, len(star_snapdict['Masses'])
+    
+    elif return_type=='mass_density':
+        unit_factor = 1e10/(2*FOV/pixels)**2 # gives units in Msun kpc^-2        
+         
+        return out_mass0 * unit_factor, len(star_snapdict['Masses'])
+
      
     
     

@@ -158,7 +158,6 @@ def fit_sersic(
     r=None,
     sb=None,
     image=None,
-    pixel=1000,
     FOV=20,
     sersic_type='sersic',
     p0=None,
@@ -193,6 +192,7 @@ def fit_sersic(
     # p0 is guess for paprameters, should not change outcome
     # [amplitude,r_eff,n]
     
+    
     if p0 is None:
         if sersic_type == 'sersic2D':
             p0 = [10**6,1,0.7,0,0,0,0]
@@ -218,6 +218,8 @@ def fit_sersic(
         std = np.sqrt(np.diag(pcov))  
         
     if sersic_type == 'sersic2D':
+        pixel = len(image)
+
         mid_pixel_FOV = FOV - FOV / pixel
         x, y = np.linspace(-mid_pixel_FOV, mid_pixel_FOV, pixel), np.linspace(mid_pixel_FOV, -mid_pixel_FOV, pixel)
         X, Y = np.meshgrid(x, y)
@@ -237,8 +239,8 @@ def fit_sersic(
         if sersic_type == 'sersic2D':
             sersic_model = Sersic2D(*popt)
             ax_sersic.imshow(np.log10(sersic_model(X,Y)+1),cmap='Greys_r')
-            ax_sersic.text(75, 100, f'R$_e$: {popt[1]:.2f} kpc',color='white')
-            ax_sersic.text(75, 200, f'n:  {popt[2]:.2f}',color='white')
+            ax_sersic.text(pixel * .05, pixel * .05, f'R$_e$: {popt[1]:.2f} kpc',color='white')
+            ax_sersic.text(pixel * .05, pixel * .1, f'n:  {popt[2]:.2f}',color='white')
             ax_sersic.get_xaxis().set_ticks([])
             ax_sersic.get_yaxis().set_ticks([])
             ax_sersic.get_figure().set_dpi(120) 
