@@ -8,7 +8,7 @@ https://github.com/courtk32/FIRE_studio
 
 ## To install FIRE_studio and mockobservation_tools:
 To install these packages, you will git clone (or fork) the repositories to your local, then pip install them. \
-In you your local directory (does not matter where) git clone the two repositories \
+In you your local directory (does not matter where) git clone the two repositories 
 
 git clone https://github.com/courtk32/FIRE_studio.git \
 git clone https://github.com/courtk32/mockobservation-tools.git 
