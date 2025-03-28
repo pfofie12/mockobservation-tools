@@ -11,7 +11,7 @@ To install these packages, you will git clone (or fork) the repositories to your
 In you your local directory (does not matter where) git clone the two repositories \
 
 git clone https://github.com/courtk32/FIRE_studio.git \
-git clone https://github.com/courtk32/mockobservation-tools.git \
+git clone https://github.com/courtk32/mockobservation-tools.git 
 
 Nativage into each of your cloned directory run:
 
@@ -30,7 +30,7 @@ Citation for FIRE_studio (Gurvich 2022): https://ui.adsabs.harvard.edu/abs/2022a
 Citation for Mockobservation_tools (Klein et al. 2024): https://doi.org/10.1093/mnras/stae1505  \
 Other citations: \
 (Chabrier 2003) https://iopscience.iop.org/article/10.1086/376392 \
-(Hopkins et al. 2005) https://iopscience.iop.org/article/10.1086/431146 \
+(Hopkins et al. 2005) https://iopscience.iop.org/article/10.1086/431146 
 
 ## Example text:
 We use an adapted version of FIRE_studio (Hopkins et al. 2005; Gurvich 2022) to create mock images (input the bands you used), as described in Section 2.2 of (Klein et al. 2024). The luminosity of each star particle is derived using a mass-to-light ratio based on the particle's mass, age, and metallicity (Chabrier 2003). We take extinction into account via Thomson scattering, the photoelectric effect, and dust absorption (Hopkins et al. 2005). Each particle is smoothed using a cubic spline kernel with a smoothing length of 1.4 times the particle's gravitational softening length. 
