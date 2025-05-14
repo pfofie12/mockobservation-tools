@@ -594,6 +594,187 @@ def load_sim_General(
 
 
 
+def load_sim_FIRE(
+    obj_path,  
+    ahf_path=None,
+    mass_unit='physical',
+    length_unit='physical',
+    star_keys=['star_x', 'star_y', 'star_z', 
+               'star_vx', 'star_vy', 'star_vz', 
+               'star_mass', 'star_metal',
+               'star_id', 'sft_a', None],
+               
+    gas_keys=['gas_x', 'gas_y', 'gas_z', 
+              'gas_vx', 'gas_vy', 'gas_vz', 
+              'gas_mass', 'gas_metal', 'gas_id', None],
+    gen_keys=['z'],
+):
+    
+    #define input keys, easier to keep track
+    gaskey_x,  gaskey_y,  gaskey_z  = [gas_keys[0],gas_keys[1],gas_keys[2]]
+    gaskey_vx, gaskey_vy, gaskey_vz = [gas_keys[3],gas_keys[4],gas_keys[5]]
+    gaskey_mass  = gas_keys[6]
+    gaskey_metal = gas_keys[7]
+    gaskey_id    = gas_keys[8]
+    gaskey_hsml  = gas_keys[9]
+        
+    starkey_x,  starkey_y,  starkey_z  = [star_keys[0],star_keys[1],star_keys[2]]
+    starkey_vx, starkey_vy, starkey_vz = [star_keys[3],star_keys[4],star_keys[5]]
+    starkey_mass  = star_keys[6]
+    starkey_metal = star_keys[7]
+    starkey_id    = star_keys[8]
+    starkey_tform = star_keys[9]
+    starkey_hsml  = star_keys[10]
+    
+    genkey_redshift = gen_keys[0]
+    
+    f = h5py.File(obj_path, 'r')
+        
+        
+    if ahf_path is None:
+        
+        # if no ahf then no mask, all elements are true
+        gas_mask  = np.full(np.shape(f[gaskey_mass]), True)
+        star_mask  = np.full(np.shape(f[starkey_mass]), True)
+
+    else:
+        ahf = h5py.File(ahf_path, 'r')
+
+        #Gas
+        gas_ids =  ahf['particleIDs'][ahf['partTypes'][:]==0]
+        gas_mask = np.in1d(f[gaskey_id],gas_ids)
+
+        #Stars
+        star_ids = ahf['particleIDs'][ahf['partTypes'][:]==4]
+        star_mask = np.in1d(f[starkey_id],star_ids)
+    
+
+    h = 0.6774
+    z_snap = f[genkey_redshift][()]
+    a_snap = 1/(1+z_snap)
+
+        
+    #Unit conversion 
+    if mass_unit == 'physical':
+        mass_conversion = 1
+    elif mass_unit == 'simulation':
+        mass_conversion = (10**10)/h
+  
+    
+    if length_unit == 'physical':
+        length_conversion = 1
+    elif length_unit == 'simulation':
+        length_conversion = a_snap/h
+        
+
+    gas_snapdict  = {'h':np.empty(0),'a':np.empty(0),
+                     'Coordinates':np.empty((0,3)),'Velocities':np.empty((0,3)),
+                     'Masses':np.empty(0),'Metallicity':np.empty(0),
+                     'hsml':np.empty(0), 'ParticleIDs':np.empty(0),
+                     'r':np.empty(0),'r_xy':np.empty(0),'r_yz':np.empty(0),'r_zx':np.empty(0)}
+
+    star_snapdict = {'h':np.empty(0),'a':np.empty(0),
+                     'Coordinates':np.empty((0,3)),'Velocities':np.empty((0,3)), 
+                     'Masses':np.empty(0),'Metallicity':np.empty(0),
+                     'hsml':np.empty(0), 'ParticleIDs':np.empty(0),
+                     'StellarFormationTime':np.empty(0), 'StellarAge':np.empty(0),
+                     'r':np.empty(0),'r_xy':np.empty(0),'r_yz':np.empty(0),'r_zx':np.empty(0)}
+    
+    
+    #Load Gas Particles
+    gas_snapdict['h'] = h
+    gas_snapdict['a'] = a_snap
+    
+    gas_snapdict['Coordinates'] = np.array([f[gaskey_x][:,0][gas_mask]*length_conversion,
+                                            f[gaskey_y][:,1][gas_mask]*length_conversion,
+                                            f[gaskey_z][:,2][gas_mask]*length_conversion
+                                           ]).T
+    
+    gas_snapdict['r'] = (gas_snapdict['Coordinates'][:,0]**2 + 
+                         gas_snapdict['Coordinates'][:,1]**2 + 
+                         gas_snapdict['Coordinates'][:,2]**2) ** 0.5
+    gas_snapdict['r_xy'] = (gas_snapdict['Coordinates'][:,0]**2 + gas_snapdict['Coordinates'][:,1]**2) ** 0.5
+    gas_snapdict['r_yz'] = (gas_snapdict['Coordinates'][:,1]**2 + gas_snapdict['Coordinates'][:,2]**2) ** 0.5
+    gas_snapdict['r_zx'] = (gas_snapdict['Coordinates'][:,2]**2 + gas_snapdict['Coordinates'][:,0]**2) ** 0.5
+    
+    
+    gas_snapdict['Velocities'] = np.array([f[gaskey_vx][:,0][gas_mask],
+                                           f[gaskey_vy][:,1][gas_mask],
+                                           f[gaskey_vz][:,2][gas_mask]
+                                          ]).T  
+
+    gas_snapdict['Masses']      = f[gaskey_mass][gas_mask]*mass_conversion
+    gas_snapdict['Metallicity'] = f[gaskey_metal][gas_mask]
+    gas_snapdict['ParticleIDs'] = f[gaskey_id][gas_mask]
+    
+    if gaskey_hsml is None:
+        gas_hsml = get_particle_hsml(gas_snapdict['Coordinates'][:,0],
+                                     gas_snapdict['Coordinates'][:,1],
+                                     gas_snapdict['Coordinates'][:,2])
+        gas_snapdict['hsml'] = np.append(gas_snapdict['hsml'],gas_hsml)
+        
+    else:
+        gas_snapdict['hsml'] = f[gaskey_hsml][gas_mask]
+
+        
+  
+    #Load Star Particles
+    star_snapdict['h'] = h
+    star_snapdict['a'] = a_snap
+
+    star_snapdict['Coordinates'] = np.array([f[starkey_x][:,0][star_mask]*length_conversion,
+                                             f[starkey_y][:,1][star_mask]*length_conversion,
+                                             f[starkey_z][:,2][star_mask]*length_conversion
+                                            ]).T
+    star_snapdict['Velocities'] = np.array([f[starkey_vx][:,0][star_mask],
+                                            f[starkey_vy][:,1][star_mask],
+                                            f[starkey_vz][:,2][star_mask]
+                                           ]).T  
+
+    star_snapdict['Masses']      = f[starkey_mass][star_mask]*mass_conversion
+    star_snapdict['Metallicity'] = f[starkey_metal][star_mask]
+    star_snapdict['ParticleIDs'] = f[starkey_id][star_mask]
+    star_snapdict['StellarFormationTime'] = f[starkey_tform][star_mask]    
+    
+    star_snapdict['r'] = (star_snapdict['Coordinates'][:,0]**2 + 
+                          star_snapdict['Coordinates'][:,1]**2 + 
+                          star_snapdict['Coordinates'][:,2]**2) ** 0.5
+    star_snapdict['r_xy'] = (star_snapdict['Coordinates'][:,0]**2 + star_snapdict['Coordinates'][:,1]**2) ** 0.5
+    star_snapdict['r_yz'] = (star_snapdict['Coordinates'][:,1]**2 + star_snapdict['Coordinates'][:,2]**2) ** 0.5
+    star_snapdict['r_zx'] = (star_snapdict['Coordinates'][:,2]**2 + star_snapdict['Coordinates'][:,0]**2) ** 0.5
+    
+
+    if starkey_hsml is None:
+        star_hsml = get_particle_hsml(star_snapdict['Coordinates'][:,0],
+                                     star_snapdict['Coordinates'][:,1],
+                                     star_snapdict['Coordinates'][:,2])
+        star_snapdict['hsml'] = np.append(star_snapdict['hsml'],star_hsml)
+        
+    else:
+        star_snapdict['hsml'] = f[starkey_hsml][star_mask]
+        
+   
+    z_form = 1/star_snapdict['StellarFormationTime'] - 1
+    star_snapdict['StellarAge'] = np.array( ( Planck13.lookback_time( z_form ) ) ) 
+    
+
+    #if orient is True:    
+    #    youngstarsMax = star_snapdict['StellarAge'] < .5
+    #    youngstars = {'Coordinates': star_snapdict['Coordinates'][youngstarsMax], 
+    #                  'Velocities': star_snapdict['Velocities'][youngstarsMax], 
+    #                  'Masses': star_snapdict['Masses'][youngstarsMax]}
+    #    
+    #    theta_TB,phi_TB,vscom = orientDiskFromSnapdicts(youngstars,gas_snapdict,Rvir,[0,0,0],orient_stars=True)
+    #    star_snapdict = offsetRotateSnapshot(star_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+    #    gas_snapdict = offsetRotateSnapshot(gas_snapdict,[0,0,0],vscom,theta_TB,phi_TB,0)
+    
+    
+    f.close()
+    
+    return star_snapdict, gas_snapdict
+
+
+
 def get_mock_observation(
     star_snapdict, 
     gas_snapdict, 
@@ -893,8 +1074,7 @@ def get_mock_massimage(
         unit_factor = 1e10/(2*FOV/pixels)**2 # gives units in Msun kpc^-2        
          
         return out_mass0 * unit_factor, len(star_snapdict['Masses'])
-
-     
+    
     
     
 def ParamsFromPath(path,typeint=True):
